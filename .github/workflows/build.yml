@@ -1,0 +1,97 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.11']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install nuitka ordered-set zstandard
+
+    - name: Build with Nuitka (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python -m nuitka --standalone --onefile --enable-plugin=pyqt6 --windows-console-mode=disable --output-filename=countdown-windows.exe --output-dir=dist countdown_app.py
+
+    - name: Build with Nuitka (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        python -m nuitka --standalone --onefile --enable-plugin=pyqt6 --macos-create-app-bundle --macos-app-name="Compte à Rebours" --output-filename=countdown-macos --output-dir=dist countdown_app.py
+
+    - name: Build with Nuitka (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        python -m nuitka --standalone --onefile --enable-plugin=pyqt6 --output-filename=countdown-linux --output-dir=dist countdown_app.py
+
+    - name: Upload artifacts (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: countdown-windows
+        path: dist/countdown-windows.exe
+
+    - name: Upload artifacts (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/upload-artifact@v4
+      with:
+        name: countdown-macos
+        path: dist/countdown-macos
+
+    - name: Upload artifacts (Linux)
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: countdown-linux
+        path: dist/countdown-linux
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/countdown-windows/countdown-windows.exe
+          artifacts/countdown-macos/countdown-macos
+          artifacts/countdown-linux/countdown-linux
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
